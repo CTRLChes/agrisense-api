@@ -1,21 +1,16 @@
-require('dotenv').config();
-const express = require('express');
-const cors    = require('cors');
-const app     = express();
+const mysql = require('mysql2');
 
-app.use(cors());
-app.use(express.json());
-
-// Routes
-app.use('/api', require('./routes/register'));
-app.use('/api', require('./routes/login'));
-app.use('/api', require('./routes/evaluation'));
-app.use('/api', require('./routes/profile'));
-
-// Health check
-app.get('/', (req, res) => {
-    res.json({ status: 'ok', message: 'Agrisense API running' });
+const pool = mysql.createPool({
+    host:     process.env.DB_HOST,
+    user:     process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME,
+    port:     process.env.DB_PORT,
+    ssl: {
+        rejectUnauthorized: false
+    },
+    waitForConnections: true,
+    connectionLimit: 10,
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+module.exports = pool.promise();
