@@ -1,7 +1,7 @@
-const express  = require('express');
-const router   = express.Router();
-const bcrypt   = require('bcryptjs');
-const db       = require('../db');
+const express = require('express');
+const router  = express.Router();
+const bcrypt  = require('bcryptjs');
+const db      = require('../db');
 
 router.post('/register', async (req, res) => {
     const { username, email, password, full_name } = req.body;
@@ -18,8 +18,10 @@ router.post('/register', async (req, res) => {
         const hashed = await bcrypt.hash(password, 10);
 
         await db.execute(
-            'INSERT INTO users (username, email, password, full_name, role) VALUES (?, ?, ?, ?, ?)',
-            [username, email, hashed, full_name || username, 'general_user']
+            `INSERT INTO users 
+                (username, email, full_name, password, role) 
+             VALUES (?, ?, ?, ?, 'general_user')`,
+            [username, email, full_name || username, hashed]
         );
 
         res.json({ status: 'success', message: 'Account created successfully' });
