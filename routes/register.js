@@ -4,7 +4,7 @@ const bcrypt  = require('bcryptjs');
 const db      = require('../db');
 
 router.post('/register', async (req, res) => {
-    const { username, email, password, full_name } = req.body;
+    const { username, email, password, full_name, security_question, security_answer } = req.body;
 
     if (!username || !email || !password) {
         return res.json({ status: 'error', message: 'Username, email and password are required' });
@@ -18,11 +18,10 @@ router.post('/register', async (req, res) => {
         const hashed = await bcrypt.hash(password, 10);
 
         await db.execute(
-            `INSERT INTO users 
-                (username, email, full_name, password, role) 
-             VALUES (?, ?, ?, ?, 'general_user')`,
-            [username, email, full_name || username, hashed]
-        );
+    `INSERT INTO users (username, email, full_name, password, role, security_question, security_answer) 
+     VALUES (?, ?, ?, ?, 'general_user', ?, ?)`,
+    [username, email, full_name || username, hashed, security_question || null, security_answer || null]
+);
 
         res.json({ status: 'success', message: 'Account created successfully' });
 
