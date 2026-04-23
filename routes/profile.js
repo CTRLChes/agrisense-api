@@ -2,6 +2,23 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 
+// Get user role
+router.get('/user/role/:username', async (req, res) => {
+    const { username } = req.params;
+    try {
+        const [rows] = await db.execute(
+            'SELECT role FROM users WHERE username = ?',
+            [username]
+        );
+        if (rows.length === 0) {
+            return res.json({ status: 'error', message: 'User not found' });
+        }
+        res.json({ status: 'success', role: rows[0].role });
+    } catch (err) {
+        res.json({ status: 'error', message: 'Server error: ' + err.message });
+    }
+});
+
 // Update username
 router.post('/profile/update-username', async (req, res) => {
     const { old_username, new_username } = req.body;
