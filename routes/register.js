@@ -4,11 +4,11 @@ const bcrypt  = require('bcryptjs');
 const db      = require('../db');
 
 router.post('/register', async (req, res) => {
-    const { username, email, password, full_name, security_question, security_answer } = req.body;
+    const { username, password, security_question, security_answer } = req.body;
 
-    if (!username || !email || !password) {
-        return res.json({ status: 'error', message: 'Username, email and password are required' });
-    }
+    if (!username || !password) {
+    return res.json({ status: 'error', message: 'Username and password are required' });
+}
 
     if (password.length < 4) {
         return res.json({ status: 'error', message: 'Password must be at least 4 characters' });
@@ -18,9 +18,9 @@ router.post('/register', async (req, res) => {
         const hashed = await bcrypt.hash(password, 10);
 
         await db.execute(
-    `INSERT INTO users (username, email, full_name, password, role, security_question, security_answer) 
-     VALUES (?, ?, ?, ?, 'general_user', ?, ?)`,
-    [username, email, full_name || username, hashed, security_question || null, security_answer || null]
+    `INSERT INTO users (username, password, role, security_question, security_answer) 
+     VALUES (?, ?, 'general_user', ?, ?)`,
+    [username, hashed, security_question || null, security_answer || null]
 );
 
         res.json({ status: 'success', message: 'Account created successfully' });
