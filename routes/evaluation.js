@@ -24,9 +24,7 @@ router.post('/evaluation/save', async (req, res) => {
              moisture, soil_ph, recommended_crop, fertilizer,
              compatibility, latitude, longitude]
         );
-
         res.json({ status: 'success', message: 'Evaluation saved successfully' });
-
     } catch (err) {
         res.json({ status: 'error', message: 'Server error: ' + err.message });
     }
@@ -35,14 +33,14 @@ router.post('/evaluation/save', async (req, res) => {
 // Get all evaluations for a user
 router.get('/evaluation/:username', async (req, res) => {
     const { username } = req.params;
-    const { sort }     = req.query; // ?sort=newest|oldest|compatibility|crop
+    const { sort }     = req.query;
 
     let orderBy;
     switch (sort) {
         case 'oldest':        orderBy = 'id ASC';  break;
         case 'compatibility': orderBy = 'CAST(REPLACE(compatibility, "%", "") AS UNSIGNED) DESC'; break;
         case 'crop':          orderBy = 'recommended_crop ASC'; break;
-        default:              orderBy = 'id DESC'; // newest
+        default:              orderBy = 'id DESC';
     }
 
     try {
@@ -50,9 +48,7 @@ router.get('/evaluation/:username', async (req, res) => {
             `SELECT * FROM evaluations WHERE username = ? ORDER BY ${orderBy}`,
             [username]
         );
-
         res.json({ status: 'success', data: rows });
-
     } catch (err) {
         res.json({ status: 'error', message: 'Server error: ' + err.message });
     }
