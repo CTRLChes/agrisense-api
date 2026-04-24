@@ -19,6 +19,58 @@ router.get('/user/role/:username', async (req, res) => {
     }
 });
 
+// Get security question by username
+router.get('/forgot/question/:username', async (req, res) => {
+    const { username } = req.params;
+    try {
+        const [rows] = await db.execute(
+            'SELECT security_question FROM users WHERE username = ?',
+            [username]
+        );
+        if (rows.length === 0 || !rows[0].security_question) {
+            return res.json({ status: 'error', message: 'User not found' });
+        }
+        res.json({ status: 'success', security_question: rows[0].security_question });
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
+});
+
+// Verify security answer
+router.post('/forgot/verify-answer', async (req, res) => {
+    const { username, answer } = req.body;
+    try {
+        const [rows] = await db.execute(
+            'SELECT * FROM users WHERE username = ? AND security_answer = ?',
+            [username, answer]
+        );
+        if (rows.length === 0) {
+            return res.json({ status: 'error', message: 'Incorrect answer' });
+        }
+        res.json({ status: 'success', message: 'Answer correct' });
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
+});
+
+// Reset PIN
+router.post('/forgot/reset-pin', async (req, res) => {
+    const { username, new_pin } = req.body;
+    try {
+        const [result] = await db.execute(
+            'UPDATE users SET password = ? WHERE username = ?',
+            [new_pin, username]
+        );
+        if (result.affectedRows > 0) {
+            res.json({ status: 'success', message: 'PIN reset successfully' });
+        } else {
+            res.json({ status: 'error', message: 'User not found' });
+        }
+    } catch (err) {
+        res.json({ status: 'error', message: err.message });
+    }
+});
+
 // Update username
 router.post('/profile/update-username', async (req, res) => {
     const { old_username, new_username } = req.body;
