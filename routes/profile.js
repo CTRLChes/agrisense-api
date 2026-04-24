@@ -54,12 +54,14 @@ router.post('/forgot/verify-answer', async (req, res) => {
 });
 
 // Reset PIN
+// Reset PIN - in forgot password flow
 router.post('/forgot/reset-pin', async (req, res) => {
     const { username, new_pin } = req.body;
     try {
+        const hashed = await bcrypt.hash(new_pin, 10); // ✅ hash it!
         const [result] = await db.execute(
             'UPDATE users SET password = ? WHERE username = ?',
-            [new_pin, username]
+            [hashed, username]
         );
         if (result.affectedRows > 0) {
             res.json({ status: 'success', message: 'PIN reset successfully' });
