@@ -29,16 +29,11 @@ router.post('/register', async (req, res) => {
         const hashed = await bcrypt.hash(password, 10);
 
         await db.execute(
-            `INSERT INTO users 
-                (username, password, role, security_question, security_answer) 
-             VALUES (?, ?, 'general_user', ?, ?)`,
-            [
-                username,
-                hashed,
-                security_question || null,
-                security_answer   || null
-            ]
-        );
+    `INSERT INTO users 
+        (username, password, role, security_question, security_answer) 
+     VALUES (?, ?, 'General User', ?, ?)`,
+    [username, hashed, security_question || null, security_answer || null]
+);
 
         res.json({ status: 'success', message: 'Account created successfully' });
 
