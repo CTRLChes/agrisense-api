@@ -1,5 +1,6 @@
 const express = require('express');
 const router  = express.Router();
+const bcrypt  = require('bcryptjs');
 const db      = require('../db');
 
 // Get user role
@@ -53,12 +54,11 @@ router.post('/forgot/verify-answer', async (req, res) => {
     }
 });
 
-// Reset PIN
-// Reset PIN - in forgot password flow
+// Reset PIN - forgot password flow
 router.post('/forgot/reset-pin', async (req, res) => {
     const { username, new_pin } = req.body;
     try {
-        const hashed = await bcrypt.hash(new_pin, 10); // ✅ hash it!
+        const hashed = await bcrypt.hash(new_pin, 10); // ✅ hashed
         const [result] = await db.execute(
             'UPDATE users SET password = ? WHERE username = ?',
             [hashed, username]
@@ -95,13 +95,14 @@ router.post('/profile/update-username', async (req, res) => {
     }
 });
 
-// Update PIN/password
+// Update PIN - profile flow
 router.post('/profile/update-pin', async (req, res) => {
     const { username, new_pin } = req.body;
     try {
+        const hashed = await bcrypt.hash(new_pin, 10); // ✅ hashed
         const [result] = await db.execute(
             'UPDATE users SET password = ? WHERE username = ?',
-            [new_pin, username]
+            [hashed, username]
         );
         if (result.affectedRows > 0) {
             res.json({ status: 'success', message: 'PIN updated' });
