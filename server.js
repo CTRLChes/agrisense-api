@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
-const bcrypt  = require('bcryptjs'); // ✅ use bcryptjs not bcrypt
+const bcrypt  = require('bcryptjs');
 const db      = require('./db');
 const app     = express();
 
@@ -147,7 +147,11 @@ app.post('/api/forgot/lookup', async (req, res) => {
         );
         if (!rows.length)
             return res.status(404).json({ status: 'error', message: 'Username not found.' });
-        res.json({ status: 'success', userId: rows[0].user_id, security_question: rows[0].security_question });
+        res.json({
+            status: 'success',
+            userId: rows[0].user_id,
+            security_question: rows[0].security_question
+        });
     } catch (e) {
         console.error(e);
         res.status(500).json({ status: 'error', message: e.message });
@@ -159,7 +163,9 @@ app.post('/api/forgot/verify', async (req, res) => {
     if (!userId || !answer)
         return res.status(400).json({ status: 'error', message: 'User ID and answer are required.' });
     try {
-        const [rows] = await db.execute('SELECT security_answer FROM users WHERE user_id = ? LIMIT 1', [userId]);
+        const [rows] = await db.execute(
+            'SELECT security_answer FROM users WHERE user_id = ? LIMIT 1', [userId]
+        );
         if (!rows.length)
             return res.status(404).json({ status: 'error', message: 'User not found.' });
         if (rows[0].security_answer.toLowerCase() !== answer.toLowerCase())
@@ -252,9 +258,12 @@ app.post('/api/evaluation/save', async (req, res) => {
              (username, date, nitrogen, phosphorus, potassium, moisture, soil_ph,
               recommended_crop, fertilizer, compatibility, latitude, longitude)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [username, date, nitrogen||'', phosphorus||'', potassium||'',
-             moisture||'', soil_ph||'', recommended_crop||'',
-             fertilizer||'', compatibility||'', latitude||'', longitude||'']
+            [
+                username, date, nitrogen || '', phosphorus || '',
+                potassium || '', moisture || '', soil_ph || '',
+                recommended_crop || '', fertilizer || '',
+                compatibility || '', latitude || '', longitude || ''
+            ]
         );
         res.status(201).json({ status: 'success', message: 'Evaluation saved.' });
     } catch (e) {
@@ -274,7 +283,7 @@ app.get('/api/evaluation/:username', async (req, res) => {
     }
     try {
         const [rows] = await db.execute(
-            SELECT * FROM evaluations WHERE username = ? ORDER BY ${orderBy},
+            `SELECT * FROM evaluations WHERE username = ? ORDER BY ${orderBy}`,
             [username]
         );
         res.json({ status: 'success', data: rows });
@@ -385,7 +394,7 @@ app.post('/api/crops', async (req, res) => {
         await db.execute(
             `INSERT INTO crops (name, type, farm_price, mkt_price, unit, season, notes)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [name, type, farmPrice||0, mktPrice||0, unit||'kg', season||'', notes||'']
+            [name, type, farmPrice || 0, mktPrice || 0, unit || 'kg', season || '', notes || '']
         );
         res.status(201).json({ status: 'success' });
     } catch (e) {
@@ -400,7 +409,8 @@ app.put('/api/crops/:id', async (req, res) => {
         const [result] = await db.execute(
             `UPDATE crops SET name=?, type=?, farm_price=?, mkt_price=?,
              unit=?, season=?, notes=? WHERE id=?`,
-            [name, type||'', farmPrice||0, mktPrice||0, unit||'kg', season||'', notes||'', req.params.id]
+            [name, type || '', farmPrice || 0, mktPrice || 0,
+             unit || 'kg', season || '', notes || '', req.params.id]
         );
         if (result.affectedRows === 0)
             return res.status(404).json({ status: 'error', message: 'Crop not found.' });
@@ -425,4 +435,4 @@ app.delete('/api/crops/:id', async (req, res) => {
    START
    ════════════════════════════════════════ */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(🚀 AgriSense API running on port ${PORT}));
+app.listen(PORT, () => console.log(`🚀 AgriSense API running on port ${PORT}`));
