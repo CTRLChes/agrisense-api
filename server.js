@@ -65,7 +65,7 @@ async function initDB() {
         'archived_at TIMESTAMP  NULL DEFAULT NULL'
     ]) {
         try {
-            await db.execute(ALTER TABLE evaluations ADD COLUMN ${colDef});
+            await db.execute(`ALTER TABLE evaluations ADD COLUMN ${colDef}`);
         } catch (e) {
             if (e.errno !== 1060) throw e;
         }
@@ -265,8 +265,8 @@ app.put('/api/users/:id', async (req, res) => {
         return res.status(400).json({ status: 'error', message: 'Nothing to update.' });
     try {
         const [result] = await db.query(
-            UPDATE users SET ${fields.join(', ')} WHERE user_id = ?, [...values, req.params.id]
-        );
+    `UPDATE users SET ${fields.join(', ')} WHERE user_id = ?`, [...values, req.params.id]
+);
         if (result.affectedRows === 0)
             return res.status(404).json({ status: 'error', message: 'User not found.' });
         res.json({ status: 'success' });
@@ -610,6 +610,6 @@ app.delete('/api/crops/:id', async (req, res) => {
    START
    ════════════════════════════════════════ */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(🚀 AgriSense API running on port ${PORT}));
+app.listen(PORT, () => console.log(`🚀 AgriSense API running on port ${PORT}`));
 Compose
 Write to Jie Cadungog
