@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
-const bcrypt  = require('bcryptjs');
+const bcrypt  = require('bcrypt');
 const db      = require('./db');
 const app     = express();
 
@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 /* ═══════════════════════════════════════════════════════════════
-   AUTO-CREATE TABLES ON STARTUP
+   AUTO-CREATE / MIGRATE TABLES ON STARTUP
    ═══════════════════════════════════════════════════════════════ */
 async function initDB() {
     await db.execute(`
@@ -17,13 +17,23 @@ async function initDB() {
             user_id           INT AUTO_INCREMENT PRIMARY KEY,
             username          VARCHAR(100) NOT NULL UNIQUE,
             password          VARCHAR(255) NOT NULL,
-            role              VARCHAR(50)  DEFAULT 'General User',
+            role              VARCHAR(50)  DEFAULT 'general_user',
+            suspended         TINYINT(1)   NOT NULL DEFAULT 0,
             security_question VARCHAR(255),
             security_answer   VARCHAR(255),
             profile_pic       VARCHAR(500),
             created_at        TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
         )
     `);
+
+    try {
+        await db.execute(`
+            ALTER TABLE users ADD COLUMN suspended TINYINT(1) NOT NULL DEFAULT 0
+        `);
+        console.log('✅ Migrated: added suspended column to users');
+    } catch (e) {
+        if (e.errno !== 1060) throw e;
+    }
 
     await db.execute(`
         CREATE TABLE IF NOT EXISTS evaluations (
@@ -40,9 +50,22 @@ async function initDB() {
             compatibility    VARCHAR(50),
             latitude         VARCHAR(50),
             longitude        VARCHAR(50),
-            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            archived         TINYINT(1)   NOT NULL DEFAULT 0,
+            archived_at      TIMESTAMP    NULL DEFAULT NULL,
+            created_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
         )
     `);
+
+    for (const colDef of [
+        'archived    TINYINT(1) NOT NULL DEFAULT 0',
+        'archived_at TIMESTAMP  NULL DEFAULT NULL'
+    ]) {
+        try {
+            await db.execute(`ALTER TABLE evaluations ADD COLUMN ${colDef}`);
+        } catch (e) {
+            if (e.errno !== 1060) throw e;
+        }
+    }
 
     await db.execute(`
         CREATE TABLE IF NOT EXISTS crops (
@@ -77,20 +100,20 @@ app.post('/api/register', async (req, res) => {
     if (!username || !pin)
         return res.status(400).json({ status: 'error', message: 'Username and PIN are required.' });
 
-    if (pin.length < 4)
-        return res.status(400).json({ status: 'error', message: 'PIN must be at least 4 digits.' });
+    if (!/^\d{6}$/.test(pin))
+        return res.status(400).json({ status: 'error', message: 'PIN must be exactly 6 digits.' });
 
     try {
-        const [existing] = await db.execute('SELECT user_id FROM users WHERE username = ?', [username]);
+        const [existing] = await db.query('SELECT user_id FROM users WHERE username = ?', [username]);
         if (existing.length)
             return res.status(409).json({ status: 'error', message: 'Username already taken.' });
 
         const hashed = await bcrypt.hash(pin, 10);
 
-        await db.execute(
+        await db.query(
             `INSERT INTO users (username, password, role, security_question, security_answer)
-             VALUES (?, ?, 'General User', ?, ?)`,
-            [username, hashed, security_question || '', security_answer || '']
+             VALUES (?, ?, 'general_user', ?, ?)`,
+            [username, hashed, security_question || '', (security_answer || '').toLowerCase()]
         );
 
         res.status(201).json({ status: 'success', message: 'Account created successfully.' });
@@ -110,7 +133,7 @@ app.post('/api/login', async (req, res) => {
         return res.status(400).json({ status: 'error', message: 'Username and PIN are required.' });
 
     try {
-        const [rows] = await db.execute('SELECT * FROM users WHERE username = ? LIMIT 1', [username]);
+        const [rows] = await db.query('SELECT * FROM users WHERE username = ? LIMIT 1', [username]);
 
         if (!rows.length)
             return res.status(401).json({ status: 'error', message: 'Username not found.' });
@@ -121,12 +144,19 @@ app.post('/api/login', async (req, res) => {
         if (!match)
             return res.status(401).json({ status: 'error', message: 'Incorrect PIN.' });
 
+        if (user.suspended) {
+            return res.status(403).json({
+                status:  'error',
+                message: 'Your account has been suspended.'
+            });
+        }
+
         res.json({
             status:   'success',
             message:  'Login successful.',
             user_id:  user.user_id,
             username: user.username,
-            role:     user.role || 'General User'
+            role:     user.role
         });
 
     } catch (e) {
@@ -135,26 +165,46 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-/* EVALUATION GET BY USER (FIXED) */
-app.get('/api/evaluation/:username', async (req, res) => {
-    const { username } = req.params;
-    const { sort }     = req.query;
+/* UPDATE USER (FIXED) */
+app.put('/api/users/:id', async (req, res) => {
+    const { role, username } = req.body;
+    const pin = req.body.pin || req.body.password;
 
-    let orderBy;
-    switch (sort) {
-        case 'oldest':        orderBy = 'id ASC'; break;
-        case 'compatibility': orderBy = 'CAST(REPLACE(compatibility, "%", "") AS UNSIGNED) DESC'; break;
-        case 'crop':          orderBy = 'recommended_crop ASC'; break;
-        default:              orderBy = 'id DESC';
+    const fields = [];
+    const values = [];
+
+    if (role) {
+        fields.push('role = ?');
+        values.push(role);
     }
 
+    if (username) {
+        fields.push('username = ?');
+        values.push(username);
+    }
+
+    if (pin) {
+        if (!/^\d{6}$/.test(pin))
+            return res.status(400).json({ status: 'error', message: 'PIN must be exactly 6 digits.' });
+
+        const hashed = await bcrypt.hash(pin, 10);
+        fields.push('password = ?');
+        values.push(hashed);
+    }
+
+    if (!fields.length)
+        return res.status(400).json({ status: 'error', message: 'Nothing to update.' });
+
     try {
-        const [rows] = await db.execute(
-            `SELECT * FROM evaluations WHERE username = ? ORDER BY ${orderBy}`,
-            [username]
+        const [result] = await db.query(
+            `UPDATE users SET ${fields.join(', ')} WHERE user_id = ?`,
+            [...values, req.params.id]
         );
 
-        res.json({ status: 'success', data: rows });
+        if (result.affectedRows === 0)
+            return res.status(404).json({ status: 'error', message: 'User not found.' });
+
+        res.json({ status: 'success' });
 
     } catch (e) {
         console.error(e);
