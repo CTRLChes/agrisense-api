@@ -53,6 +53,9 @@ async function initDB() {
             compatibility    VARCHAR(50),
             latitude         VARCHAR(50),
             longitude        VARCHAR(50),
+            fertilizer_rate        VARCHAR(100),
+            fertilizer_timing      VARCHAR(100),
+            fertilizer_application VARCHAR(100),
             archived         TINYINT(1)   NOT NULL DEFAULT 0,
             archived_at      TIMESTAMP    NULL DEFAULT NULL,
             created_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
@@ -66,6 +69,20 @@ async function initDB() {
     ]) {
         try {
             await db.execute(`ALTER TABLE evaluations ADD COLUMN ${colDef}`);
+        } catch (e) {
+            if (e.errno !== 1060) throw e;
+        }
+    }
+
+    /* Migration: add fertilizer columns to evaluations if they don't exist yet */
+    for (const colDef of [
+        'fertilizer_rate        VARCHAR(100)',
+        'fertilizer_timing      VARCHAR(100)',
+        'fertilizer_application VARCHAR(100)'
+    ]) {
+        try {
+            await db.execute(`ALTER TABLE evaluations ADD COLUMN ${colDef}`);
+            console.log(`✅ Added column: ${colDef.split(' ')[0]}`);
         } catch (e) {
             if (e.errno !== 1060) throw e;
         }
@@ -486,23 +503,32 @@ app.get('/api/evaluations', async (req, res) => {
     }
 });
 
+/* POST /api/evaluations — CREATE new evaluation with fertilizer details */
 app.post('/api/evaluations', async (req, res) => {
     const {
         username, date, nitrogen, phosphorus, potassium,
         moisture, soil_ph, recommended_crop, fertilizer,
-        compatibility, latitude, longitude
+        compatibility, latitude, longitude,
+        fertilizer_rate, fertilizer_timing, fertilizer_application
     } = req.body;
+    
     if (!username || !date)
         return res.status(400).json({ status: 'error', message: 'Username and date are required.' });
+    
     try {
         await db.query(
             `INSERT INTO evaluations
              (username, date, nitrogen, phosphorus, potassium, moisture, soil_ph,
-              recommended_crop, fertilizer, compatibility, latitude, longitude)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [username, date, nitrogen||'', phosphorus||'', potassium||'',
-             moisture||'', soil_ph||'', recommended_crop||'',
-             fertilizer||'', compatibility||'', latitude||'', longitude||'']
+              recommended_crop, fertilizer, compatibility, latitude, longitude,
+              fertilizer_rate, fertilizer_timing, fertilizer_application)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                username, date, 
+                nitrogen || '', phosphorus || '', potassium || '',
+                moisture || '', soil_ph || '', recommended_crop || '',
+                fertilizer || '', compatibility || '', latitude || '', longitude || '',
+                fertilizer_rate || '', fertilizer_timing || '', fertilizer_application || ''
+            ]
         );
         res.status(201).json({ status: 'success', message: 'Evaluation saved.' });
     } catch (e) {
