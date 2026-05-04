@@ -175,6 +175,34 @@ app.post('/api/login', async (req, res) => {
 });
 
 /* ════════════════════════════════════════
+   USER ROLE - Get user role
+   ════════════════════════════════════════ */
+app.get('/api/user/role/:username', async (req, res) => {
+    const { username } = req.params;
+    if (!username) {
+        return res.status(400).json({ status: 'error', message: 'Username is required.' });
+    }
+    
+    try {
+        const [rows] = await db.query(
+            'SELECT role FROM users WHERE username = ? LIMIT 1',
+            [username]
+        );
+        
+        if (rows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'User not found.' });
+        }
+        
+        // Return the role (default to 'General User' if null)
+        const role = rows[0].role || 'General User';
+        res.json({ status: 'success', role: role });
+    } catch (err) {
+        console.error('Error fetching user role:', err);
+        res.status(500).json({ status: 'error', message: 'Server error: ' + err.message });
+    }
+});
+
+/* ════════════════════════════════════════
    AUTH — FORGOT PIN (3-step)
    ════════════════════════════════════════ */
 app.post('/api/forgot/lookup', async (req, res) => {
