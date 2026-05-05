@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
-const bcrypt  = require('bcryptjs');  // ✅ FIXED: changed from 'bcrypt' to 'bcryptjs'
+const bcrypt  = require('bcryptjs');
 const db      = require('./db');
 const app     = express();
 
@@ -26,15 +26,13 @@ async function initDB() {
         )
     `);
 
-    /* Migration: add `suspended` column if this is an existing DB that
-       was created before this column existed.                           */
+    /* Migration: add `suspended` column if this is an existing DB */
     try {
         await db.execute(`
             ALTER TABLE users ADD COLUMN suspended TINYINT(1) NOT NULL DEFAULT 0
         `);
         console.log('✅ Migrated: added suspended column to users');
     } catch (e) {
-        /* Error 1060 = "Duplicate column name" — column already exists, ignore. */
         if (e.errno !== 1060) throw e;
     }
 
@@ -62,7 +60,7 @@ async function initDB() {
         )
     `);
 
-    /* Migration: add archive columns to evaluations if they don't exist yet. */
+    /* Migration: add archive columns */
     for (const colDef of [
         'archived    TINYINT(1) NOT NULL DEFAULT 0',
         'archived_at TIMESTAMP  NULL DEFAULT NULL'
@@ -74,7 +72,7 @@ async function initDB() {
         }
     }
 
-    /* Migration: add fertilizer columns to evaluations if they don't exist yet */
+    /* Migration: add fertilizer columns */
     for (const colDef of [
         'fertilizer_rate        VARCHAR(100)',
         'fertilizer_timing      VARCHAR(100)',
@@ -112,7 +110,7 @@ async function initDB() {
         if (e.errno !== 1060) throw e;
     }
 
-    /* Price history table — logs every price change per crop */
+    /* Price history table */
     await db.execute(`
         CREATE TABLE IF NOT EXISTS crop_price_history (
             id           INT AUTO_INCREMENT PRIMARY KEY,
@@ -183,25 +181,25 @@ app.post('/api/login', async (req, res) => {
         if (!rows.length)
             return res.status(401).json({ status: 'error', message: 'Username not found.' });
 
-        const user  = rows[0];
+        const user = rows[0];
         const match = await bcrypt.compare(String(pin), user.password);
         if (!match)
             return res.status(401).json({ status: 'error', message: 'Incorrect PIN.' });
 
         if (user.suspended) {
             return res.status(403).json({
-                status:  'error',
+                status: 'error',
                 message: 'Your account has been suspended. Please contact an administrator.'
             });
         }
 
         res.json({
-            status:    'success',
-            message:   'Login successful.',
-            user_id:   user.user_id,
-            username:  user.username,
+            status: 'success',
+            message: 'Login successful.',
+            user_id: user.user_id,
+            username: user.username,
             full_name: user.username,
-            role:      user.role || 'general_user',
+            role: user.role || 'general_user',
             suspended: false
         });
     } catch (e) {
@@ -233,6 +231,36 @@ app.get('/api/user/role/:username', async (req, res) => {
         res.json({ status: 'success', role: role });
     } catch (err) {
         console.error('Error fetching user role:', err);
+        res.status(500).json({ status: 'error', message: 'Server error: ' + err.message });
+    }
+});
+
+/* ════════════════════════════════════════
+   USER SECURITY - Get security question and answer
+   ════════════════════════════════════════ */
+app.get('/api/user/security/:username', async (req, res) => {
+    const { username } = req.params;
+    if (!username) {
+        return res.status(400).json({ status: 'error', message: 'Username is required.' });
+    }
+    
+    try {
+        const [rows] = await db.query(
+            'SELECT security_question, security_answer FROM users WHERE username = ? LIMIT 1',
+            [username]
+        );
+        
+        if (rows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'User not found.' });
+        }
+        
+        res.json({
+            status: 'success',
+            security_question: rows[0].security_question || '',
+            security_answer: rows[0].security_answer || ''
+        });
+    } catch (err) {
+        console.error('Error fetching user security:', err);
         res.status(500).json({ status: 'error', message: 'Server error: ' + err.message });
     }
 });
@@ -316,9 +344,9 @@ app.put('/api/users/:id', async (req, res) => {
     const pin = req.body.pin || req.body.password;
     const fields = [], values = [];
 
-    if (role     !== undefined) { fields.push('role = ?');     values.push(role); }
+    if (role !== undefined) { fields.push('role = ?'); values.push(role); }
     if (username !== undefined) { fields.push('username = ?'); values.push(username); }
-    if (pin      !== undefined) {
+    if (pin !== undefined) {
         if (!/^\d{6}$/.test(pin))
             return res.status(400).json({ status: 'error', message: 'PIN must be exactly 6 digits.' });
         const hashed = await bcrypt.hash(pin, 10);
@@ -381,8 +409,8 @@ app.post('/api/admin/suspend', async (req, res) => {
         if (result.affectedRows === 0)
             return res.status(404).json({ status: 'error', message: 'User not found.' });
         res.json({
-            status:    'success',
-            message:   suspended ? 'Account suspended.' : 'Account reactivated.',
+            status: 'success',
+            message: suspended ? 'Account suspended.' : 'Account reactivated.',
             suspended: suspendedVal === 1
         });
     } catch (e) {
