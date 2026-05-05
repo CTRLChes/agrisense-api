@@ -137,7 +137,7 @@ app.get('/', (req, res) => {
 });
 
 /* ════════════════════════════════════════
-   AI PROXY — Anthropic price fetch
+   AI PROXY — Malita, Davao Occidental crop price fetch
    Keeps the API key server-side only.
    POST /api/ai/prices  { crops: ["Rice", "Corn", ...] }
    ════════════════════════════════════════ */
@@ -151,14 +151,19 @@ app.post('/api/ai/prices', async (req, res) => {
         return res.status(500).json({ status: 'error', message: 'ANTHROPIC_API_KEY is not configured on the server.' });
 
     const nameList = crops.join(', ');
+
+    // ── Malita-specific prompt ──────────────────────────────────────────────
     const prompt =
-        `You are an agricultural market analyst specializing in the Philippines. ` +
-        `Provide the LATEST nationwide farm-gate price and retail/market price in Philippine Pesos (₱) per kilogram ` +
-        `for these crops, reflecting current prices as of 2025 based on PSA (Philippine Statistics Authority) ` +
-        `and DA (Department of Agriculture) data: ${nameList}.\n\n` +
+        `You are an agricultural pricing expert specializing in Malita, Davao Occidental, Philippines. ` +
+        `Provide the LATEST farm-gate price and retail/market price in Philippine Pesos (₱) per kilogram ` +
+        `for these crops as traded in Malita and the surrounding Davao Occidental area, ` +
+        `reflecting current prices based on DA-XI (Department of Agriculture Region XI), ` +
+        `PSA (Philippine Statistics Authority), and Malita LGU/municipal market data: ${nameList}.\n\n` +
         `Return ONLY a valid JSON object with NO markdown, NO explanation, NO extra text. Format:\n` +
         `{"CropName":{"farmgate":number,"retail":number,"unit":"kg","season":"year-round","note":"brief note"}}\n` +
-        `Use the EXACT crop names I provided as keys. Use realistic Philippine peso values.`;
+        `Use the EXACT crop names I provided as keys. Use realistic current Philippine peso values ` +
+        `appropriate for Malita, Davao Occidental local market conditions.`;
+    // ───────────────────────────────────────────────────────────────────────
 
     try {
         const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
