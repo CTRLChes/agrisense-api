@@ -26,7 +26,7 @@ async function initDB() {
         )
     `);
 
-    /* Migration: add `suspended` column if this is an existing DB */
+    /* Migration: add suspended column if this is an existing DB */
     try {
         await db.execute(`
             ALTER TABLE users ADD COLUMN suspended TINYINT(1) NOT NULL DEFAULT 0
@@ -137,6 +137,70 @@ app.get('/', (req, res) => {
 });
 
 /* ════════════════════════════════════════
+   AI PROXY — Anthropic price fetch
+   Keeps the API key server-side only.
+   POST /api/ai/prices  { crops: ["Rice", "Corn", ...] }
+   ════════════════════════════════════════ */
+app.post('/api/ai/prices', async (req, res) => {
+    const { crops } = req.body;
+    if (!Array.isArray(crops) || crops.length === 0)
+        return res.status(400).json({ status: 'error', message: 'crops array is required.' });
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey)
+        return res.status(500).json({ status: 'error', message: 'ANTHROPIC_API_KEY is not configured on the server.' });
+
+    const nameList = crops.join(', ');
+    const prompt =
+        `You are an agricultural market analyst specializing in the Philippines. ` +
+        `Provide the LATEST nationwide farm-gate price and retail/market price in Philippine Pesos (₱) per kilogram ` +
+        `for these crops, reflecting current prices as of 2025 based on PSA (Philippine Statistics Authority) ` +
+        `and DA (Department of Agriculture) data: ${nameList}.\n\n` +
+        `Return ONLY a valid JSON object with NO markdown, NO explanation, NO extra text. Format:\n` +
+        `{"CropName":{"farmgate":number,"retail":number,"unit":"kg","season":"year-round","note":"brief note"}}\n` +
+        `Use the EXACT crop names I provided as keys. Use realistic Philippine peso values.`;
+
+    try {
+        const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type':      'application/json',
+                'x-api-key':         apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+                model:      'claude-sonnet-4-20250514',
+                max_tokens: 4096,
+                messages:   [{ role: 'user', content: prompt }]
+            })
+        });
+
+        if (!aiRes.ok) {
+            const errText = await aiRes.text();
+            console.error('Anthropic API error:', aiRes.status, errText);
+            return res.status(502).json({ status: 'error', message: `Anthropic API error ${aiRes.status}` });
+        }
+
+        const data  = await aiRes.json();
+        const text  = (data.content || []).map(b => b.text || '').join('');
+        const clean = text.replace(/```json|```/g, '').trim();
+
+        let parsed;
+        try {
+            parsed = JSON.parse(clean);
+        } catch (parseErr) {
+            console.error('Failed to parse AI response:', clean);
+            return res.status(502).json({ status: 'error', message: 'AI returned invalid JSON.' });
+        }
+
+        res.json({ status: 'success', prices: parsed });
+    } catch (e) {
+        console.error('AI proxy error:', e);
+        res.status(500).json({ status: 'error', message: e.message });
+    }
+});
+
+/* ════════════════════════════════════════
    AUTH — REGISTER
    ════════════════════════════════════════ */
 app.post('/api/register', async (req, res) => {
@@ -181,25 +245,25 @@ app.post('/api/login', async (req, res) => {
         if (!rows.length)
             return res.status(401).json({ status: 'error', message: 'Username not found.' });
 
-        const user = rows[0];
+        const user  = rows[0];
         const match = await bcrypt.compare(String(pin), user.password);
         if (!match)
             return res.status(401).json({ status: 'error', message: 'Incorrect PIN.' });
 
         if (user.suspended) {
             return res.status(403).json({
-                status: 'error',
+                status:  'error',
                 message: 'Your account has been suspended. Please contact an administrator.'
             });
         }
 
         res.json({
-            status: 'success',
-            message: 'Login successful.',
-            user_id: user.user_id,
-            username: user.username,
+            status:    'success',
+            message:   'Login successful.',
+            user_id:   user.user_id,
+            username:  user.username,
             full_name: user.username,
-            role: user.role || 'general_user',
+            role:      user.role || 'general_user',
             suspended: false
         });
     } catch (e) {
@@ -213,22 +277,17 @@ app.post('/api/login', async (req, res) => {
    ════════════════════════════════════════ */
 app.get('/api/user/role/:username', async (req, res) => {
     const { username } = req.params;
-    if (!username) {
+    if (!username)
         return res.status(400).json({ status: 'error', message: 'Username is required.' });
-    }
-    
+
     try {
         const [rows] = await db.query(
-            'SELECT role FROM users WHERE username = ? LIMIT 1',
-            [username]
+            'SELECT role FROM users WHERE username = ? LIMIT 1', [username]
         );
-        
-        if (rows.length === 0) {
+        if (rows.length === 0)
             return res.status(404).json({ status: 'error', message: 'User not found.' });
-        }
-        
-        const role = rows[0].role || 'General User';
-        res.json({ status: 'success', role: role });
+
+        res.json({ status: 'success', role: rows[0].role || 'General User' });
     } catch (err) {
         console.error('Error fetching user role:', err);
         res.status(500).json({ status: 'error', message: 'Server error: ' + err.message });
@@ -240,24 +299,20 @@ app.get('/api/user/role/:username', async (req, res) => {
    ════════════════════════════════════════ */
 app.get('/api/user/security/:username', async (req, res) => {
     const { username } = req.params;
-    if (!username) {
+    if (!username)
         return res.status(400).json({ status: 'error', message: 'Username is required.' });
-    }
-    
+
     try {
         const [rows] = await db.query(
-            'SELECT security_question, security_answer FROM users WHERE username = ? LIMIT 1',
-            [username]
+            'SELECT security_question, security_answer FROM users WHERE username = ? LIMIT 1', [username]
         );
-        
-        if (rows.length === 0) {
+        if (rows.length === 0)
             return res.status(404).json({ status: 'error', message: 'User not found.' });
-        }
-        
+
         res.json({
-            status: 'success',
+            status:            'success',
             security_question: rows[0].security_question || '',
-            security_answer: rows[0].security_answer || ''
+            security_answer:   rows[0].security_answer   || ''
         });
     } catch (err) {
         console.error('Error fetching user security:', err);
@@ -344,9 +399,9 @@ app.put('/api/users/:id', async (req, res) => {
     const pin = req.body.pin || req.body.password;
     const fields = [], values = [];
 
-    if (role !== undefined) { fields.push('role = ?'); values.push(role); }
+    if (role     !== undefined) { fields.push('role = ?');     values.push(role); }
     if (username !== undefined) { fields.push('username = ?'); values.push(username); }
-    if (pin !== undefined) {
+    if (pin      !== undefined) {
         if (!/^\d{6}$/.test(pin))
             return res.status(400).json({ status: 'error', message: 'PIN must be exactly 6 digits.' });
         const hashed = await bcrypt.hash(pin, 10);
@@ -409,8 +464,8 @@ app.post('/api/admin/suspend', async (req, res) => {
         if (result.affectedRows === 0)
             return res.status(404).json({ status: 'error', message: 'User not found.' });
         res.json({
-            status: 'success',
-            message: suspended ? 'Account suspended.' : 'Account reactivated.',
+            status:    'success',
+            message:   suspended ? 'Account suspended.' : 'Account reactivated.',
             suspended: suspendedVal === 1
         });
     } catch (e) {
@@ -514,7 +569,6 @@ app.post('/api/profile/update-pin', async (req, res) => {
 /* ════════════════════════════════════════
    EVALUATIONS — CRUD
    ════════════════════════════════════════ */
-
 app.get('/api/evaluations', async (req, res) => {
     try {
         const [rows] = await db.query(
@@ -535,10 +589,10 @@ app.post('/api/evaluations', async (req, res) => {
         compatibility, latitude, longitude,
         fertilizer_rate, fertilizer_timing, fertilizer_application
     } = req.body;
-    
+
     if (!username || !date)
         return res.status(400).json({ status: 'error', message: 'Username and date are required.' });
-    
+
     try {
         await db.query(
             `INSERT INTO evaluations
@@ -547,7 +601,7 @@ app.post('/api/evaluations', async (req, res) => {
               fertilizer_rate, fertilizer_timing, fertilizer_application)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                username, date, 
+                username, date,
                 nitrogen || '', phosphorus || '', potassium || '',
                 moisture || '', soil_ph || '', recommended_crop || '',
                 fertilizer || '', compatibility || '', latitude || '', longitude || '',
@@ -695,7 +749,7 @@ app.post('/api/crops/bulk-upsert', async (req, res) => {
         for (const c of crops) {
             if (!c.name) continue;
             const fp = parseFloat(c.farmPrice) || 0;
-            const mp = parseFloat(c.mktPrice) || 0;
+            const mp = parseFloat(c.mktPrice)  || 0;
 
             const [existing] = await db.query(
                 'SELECT id, farm_price, mkt_price FROM crops WHERE LOWER(name) = LOWER(?) LIMIT 1',
@@ -715,7 +769,7 @@ app.post('/api/crops/bulk-upsert', async (req, res) => {
                 );
                 inserted++;
             } else {
-                const row = existing[0];
+                const row   = existing[0];
                 const oldFp = parseFloat(row.farm_price);
                 const oldMp = parseFloat(row.mkt_price);
                 const priceChanged = Math.abs(oldFp - fp) > 0.01 || Math.abs(oldMp - mp) > 0.01;
