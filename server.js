@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
-const bcrypt = require('bcryptjs');
+const bcrypt  = require('bcryptjs');  // ✅ FIXED: changed from 'bcrypt' to 'bcryptjs'
 const db      = require('./db');
 const app     = express();
 
@@ -98,8 +98,31 @@ async function initDB() {
             unit        VARCHAR(30)   DEFAULT 'kg',
             season      VARCHAR(60),
             notes       TEXT,
+            rt_note     TEXT,
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
+
+    /* Migration: add rt_note column if missing */
+    try {
+        await db.execute(`ALTER TABLE crops ADD COLUMN rt_note TEXT`);
+        console.log('✅ Migrated: added rt_note column to crops');
+    } catch (e) {
+        if (e.errno !== 1060) throw e;
+    }
+
+    /* Price history table — logs every price change per crop */
+    await db.execute(`
+        CREATE TABLE IF NOT EXISTS crop_price_history (
+            id           INT AUTO_INCREMENT PRIMARY KEY,
+            crop_id      INT NOT NULL,
+            crop_name    VARCHAR(120) NOT NULL,
+            farm_price   DECIMAL(10,2),
+            mkt_price    DECIMAL(10,2),
+            recorded_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_crop_id (crop_id),
+            INDEX idx_recorded_at (recorded_at)
         )
     `);
 
@@ -147,8 +170,6 @@ app.post('/api/register', async (req, res) => {
 
 /* ════════════════════════════════════════
    AUTH — LOGIN
-   Returns `suspended: true/false` so the
-   frontend can block login immediately.
    ════════════════════════════════════════ */
 app.post('/api/login', async (req, res) => {
     const { username } = req.body;
@@ -167,8 +188,6 @@ app.post('/api/login', async (req, res) => {
         if (!match)
             return res.status(401).json({ status: 'error', message: 'Incorrect PIN.' });
 
-        /* Block login for suspended accounts — return a clear error so the
-           frontend shows the right message without a secondary API round-trip. */
         if (user.suspended) {
             return res.status(403).json({
                 status:  'error',
@@ -210,7 +229,6 @@ app.get('/api/user/role/:username', async (req, res) => {
             return res.status(404).json({ status: 'error', message: 'User not found.' });
         }
         
-        // Return the role (default to 'General User' if null)
         const role = rows[0].role || 'General User';
         res.json({ status: 'success', role: role });
     } catch (err) {
@@ -276,7 +294,7 @@ app.post('/api/forgot/reset', async (req, res) => {
 });
 
 /* ════════════════════════════════════════
-   USERS — legacy CRUD  (kept for compat)
+   USERS — legacy CRUD
    ════════════════════════════════════════ */
 app.get('/api/users', async (req, res) => {
     try {
@@ -335,13 +353,7 @@ app.delete('/api/users/:id', async (req, res) => {
 
 /* ════════════════════════════════════════
    ADMIN — USER MANAGEMENT
-   These are the endpoints called by admin.php
    ════════════════════════════════════════ */
-
-/* GET /api/admin/users
-   Returns the full user list including the suspended flag.
-   The frontend uses this to cross-check suspension on login
-   and on every page load of app.php.                        */
 app.get('/api/admin/users', async (req, res) => {
     try {
         const [rows] = await db.query(
@@ -356,10 +368,6 @@ app.get('/api/admin/users', async (req, res) => {
     }
 });
 
-/* POST /api/admin/suspend
-   Body: { user_id, suspended }  (suspended = true | false)
-   This is the authoritative server-side toggle; once set here
-   the login endpoint will immediately block the suspended user. */
 app.post('/api/admin/suspend', async (req, res) => {
     const { user_id, suspended } = req.body;
     if (user_id === undefined || suspended === undefined)
@@ -383,8 +391,6 @@ app.post('/api/admin/suspend', async (req, res) => {
     }
 });
 
-/* POST /api/admin/update-role
-   Body: { user_id, role }  */
 app.post('/api/admin/update-role', async (req, res) => {
     const { user_id, role } = req.body;
     if (!user_id || !role)
@@ -409,11 +415,7 @@ app.post('/api/admin/update-role', async (req, res) => {
 
 /* ════════════════════════════════════════
    PROFILE — self-service updates
-   Called by admin.php's Manage User modal
    ════════════════════════════════════════ */
-
-/* POST /api/profile/update-username
-   Body: { old_username, new_username }  */
 app.post('/api/profile/update-username', async (req, res) => {
     const { old_username, new_username } = req.body;
     if (!old_username || !new_username)
@@ -441,8 +443,6 @@ app.post('/api/profile/update-username', async (req, res) => {
     }
 });
 
-/* POST /api/profile/update-security
-   Body: { username, security_question, security_answer }  */
 app.post('/api/profile/update-security', async (req, res) => {
     const { username, security_question, security_answer } = req.body;
     if (!username || !security_question || !security_answer)
@@ -462,8 +462,6 @@ app.post('/api/profile/update-security', async (req, res) => {
     }
 });
 
-/* POST /api/profile/update-pin
-   Body: { username, new_pin }  */
 app.post('/api/profile/update-pin', async (req, res) => {
     const { username, new_pin } = req.body;
     if (!username || !new_pin)
@@ -487,10 +485,8 @@ app.post('/api/profile/update-pin', async (req, res) => {
 
 /* ════════════════════════════════════════
    EVALUATIONS — CRUD
-   Includes soft-archive support.
    ════════════════════════════════════════ */
 
-/* GET /api/evaluations — returns only non-archived rows */
 app.get('/api/evaluations', async (req, res) => {
     try {
         const [rows] = await db.query(
@@ -503,7 +499,7 @@ app.get('/api/evaluations', async (req, res) => {
     }
 });
 
-/* POST /api/evaluations — CREATE new evaluation with fertilizer details */
+/* POST /api/evaluations — WITH fertilizer details */
 app.post('/api/evaluations', async (req, res) => {
     const {
         username, date, nitrogen, phosphorus, potassium,
@@ -549,7 +545,6 @@ app.delete('/api/evaluations/:id', async (req, res) => {
     }
 });
 
-/* POST /api/evaluations/:id/archive — soft-archive a single evaluation */
 app.post('/api/evaluations/:id/archive', async (req, res) => {
     try {
         const [result] = await db.query(
@@ -565,7 +560,6 @@ app.post('/api/evaluations/:id/archive', async (req, res) => {
     }
 });
 
-/* POST /api/evaluations/:id/restore — restore an archived evaluation */
 app.post('/api/evaluations/:id/restore', async (req, res) => {
     try {
         const [result] = await db.query(
@@ -581,7 +575,6 @@ app.post('/api/evaluations/:id/restore', async (req, res) => {
     }
 });
 
-/* GET /api/evaluations/archived — returns only archived rows */
 app.get('/api/evaluations/archived', async (req, res) => {
     try {
         const [rows] = await db.query(
@@ -602,7 +595,7 @@ app.get('/api/crops', async (req, res) => {
         const [rows] = await db.query(
             `SELECT id, name, type,
                     farm_price AS farmPrice, mkt_price AS mktPrice,
-                    unit, season, notes,
+                    unit, season, notes, rt_note AS rtNote,
                     created_at AS createdAt, updated_at AS updatedAt
              FROM crops ORDER BY updated_at DESC`
         );
@@ -614,14 +607,14 @@ app.get('/api/crops', async (req, res) => {
 });
 
 app.post('/api/crops', async (req, res) => {
-    const { name, type, farmPrice, mktPrice, unit, season, notes } = req.body;
+    const { name, type, farmPrice, mktPrice, unit, season, notes, rtNote } = req.body;
     if (!name) return res.status(400).json({ status: 'error', message: 'Crop name is required.' });
     if (!type) return res.status(400).json({ status: 'error', message: 'Crop category is required.' });
     try {
         await db.query(
-            `INSERT INTO crops (name, type, farm_price, mkt_price, unit, season, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [name, type, farmPrice||0, mktPrice||0, unit||'kg', season||'', notes||'']
+            `INSERT INTO crops (name, type, farm_price, mkt_price, unit, season, notes, rt_note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [name, type, farmPrice || 0, mktPrice || 0, unit || 'kg', season || '', notes || '', rtNote || '']
         );
         res.status(201).json({ status: 'success' });
     } catch (e) {
@@ -631,13 +624,13 @@ app.post('/api/crops', async (req, res) => {
 });
 
 app.put('/api/crops/:id', async (req, res) => {
-    const { name, type, farmPrice, mktPrice, unit, season, notes } = req.body;
+    const { name, type, farmPrice, mktPrice, unit, season, notes, rtNote } = req.body;
     if (!name) return res.status(400).json({ status: 'error', message: 'Crop name is required.' });
     try {
         const [result] = await db.query(
             `UPDATE crops SET name=?, type=?, farm_price=?, mkt_price=?,
-             unit=?, season=?, notes=? WHERE id=?`,
-            [name, type||'', farmPrice||0, mktPrice||0, unit||'kg', season||'', notes||'', req.params.id]
+             unit=?, season=?, notes=?, rt_note=?, updated_at=NOW() WHERE id=?`,
+            [name, type || '', farmPrice || 0, mktPrice || 0, unit || 'kg', season || '', notes || '', rtNote || '', req.params.id]
         );
         if (result.affectedRows === 0)
             return res.status(404).json({ status: 'error', message: 'Crop not found.' });
@@ -654,6 +647,99 @@ app.delete('/api/crops/:id', async (req, res) => {
         if (result.affectedRows === 0)
             return res.status(404).json({ status: 'error', message: 'Crop not found.' });
         res.json({ status: 'success' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ status: 'error', message: e.message });
+    }
+});
+
+/* ════════════════════════════════════════
+   CROPS — BULK UPSERT
+   ════════════════════════════════════════ */
+app.post('/api/crops/bulk-upsert', async (req, res) => {
+    const { crops } = req.body;
+    if (!Array.isArray(crops) || crops.length === 0)
+        return res.status(400).json({ status: 'error', message: 'crops array is required.' });
+
+    try {
+        let inserted = 0, updated = 0, unchanged = 0;
+
+        for (const c of crops) {
+            if (!c.name) continue;
+            const fp = parseFloat(c.farmPrice) || 0;
+            const mp = parseFloat(c.mktPrice) || 0;
+
+            const [existing] = await db.query(
+                'SELECT id, farm_price, mkt_price FROM crops WHERE LOWER(name) = LOWER(?) LIMIT 1',
+                [c.name]
+            );
+
+            if (existing.length === 0) {
+                const [ins] = await db.query(
+                    `INSERT INTO crops (name, type, farm_price, mkt_price, unit, season, notes, rt_note)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [c.name, c.type || 'other', fp, mp, c.unit || 'kg', c.season || '', c.notes || '', c.rtNote || '']
+                );
+                await db.query(
+                    `INSERT INTO crop_price_history (crop_id, crop_name, farm_price, mkt_price)
+                     VALUES (?, ?, ?, ?)`,
+                    [ins.insertId, c.name, fp, mp]
+                );
+                inserted++;
+            } else {
+                const row = existing[0];
+                const oldFp = parseFloat(row.farm_price);
+                const oldMp = parseFloat(row.mkt_price);
+                const priceChanged = Math.abs(oldFp - fp) > 0.01 || Math.abs(oldMp - mp) > 0.01;
+
+                await db.query(
+                    `UPDATE crops SET type=?, farm_price=?, mkt_price=?, unit=?, season=?, rt_note=?, updated_at=NOW()
+                     WHERE id=?`,
+                    [c.type || 'other', fp, mp, c.unit || 'kg', c.season || '', c.rtNote || '', row.id]
+                );
+
+                if (priceChanged) {
+                    await db.query(
+                        `INSERT INTO crop_price_history (crop_id, crop_name, farm_price, mkt_price)
+                         VALUES (?, ?, ?, ?)`,
+                        [row.id, c.name, fp, mp]
+                    );
+                    updated++;
+                } else {
+                    unchanged++;
+                }
+            }
+        }
+
+        res.json({ status: 'success', inserted, updated, unchanged });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ status: 'error', message: e.message });
+    }
+});
+
+/* GET /api/crops/price-history */
+app.get('/api/crops/price-history', async (req, res) => {
+    const { cropId, limit } = req.query;
+    try {
+        let rows;
+        if (cropId) {
+            [rows] = await db.query(
+                `SELECT * FROM crop_price_history WHERE crop_id = ?
+                 ORDER BY recorded_at DESC LIMIT ?`,
+                [parseInt(cropId), parseInt(limit) || 20]
+            );
+        } else {
+            [rows] = await db.query(
+                `SELECT h.* FROM crop_price_history h
+                 INNER JOIN (
+                   SELECT crop_id, MAX(recorded_at) AS latest FROM crop_price_history GROUP BY crop_id
+                 ) latest ON h.crop_id = latest.crop_id AND h.recorded_at = latest.latest
+                 ORDER BY h.recorded_at DESC LIMIT ?`,
+                [parseInt(limit) || 100]
+            );
+        }
+        res.json(rows);
     } catch (e) {
         console.error(e);
         res.status(500).json({ status: 'error', message: e.message });
